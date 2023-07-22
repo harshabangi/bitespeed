@@ -25,7 +25,7 @@ func identify(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	contacts, err := s.storage.Contact.ListContacts(req.Email, req.PhoneNumber)
+	contacts, err := s.storage.Contact.ListContactsByEmailAndPhoneNumber(req.Email, req.PhoneNumber)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -61,12 +61,13 @@ func toContact(rq pkg.ContactRequest) storage.Contact {
 
 func helper(s *storage.Store, req pkg.ContactRequest, contacts []storage.Contact) (*pkg.ContactResponse, error) {
 
-	var primaryID int64
+	var primaryContactID int64
 
 	if req.Email == "" || req.PhoneNumber == "" {
-		primaryID = getPrimaryID(contacts)
+		primaryContactID = getPrimaryContactID(contacts)
 
 	} else {
+
 		var (
 			e      = 0
 			p      = 0
@@ -103,22 +104,22 @@ func helper(s *storage.Store, req pkg.ContactRequest, contacts []storage.Contact
 					cc1 = p1
 				}
 
-				if err := s.Contact.UpdatedContactsWithNewLinkedIDs(cc2.ID, cc1.ID); err != nil {
+				if err := s.Contact.UpdateContactsWithNewLinkedIDs(cc2.ID, cc1.ID); err != nil {
 					return nil, err
 				}
-				if err := s.Contact.UpdatedContact(cc2.ID, cc1.ID); err != nil {
+				if err := s.Contact.UpdateContact(cc2.ID, storage.Contact{LinkedID: cc1.ID}); err != nil {
 					return nil, err
 				}
 
-				primaryID = cc1.ID
+				primaryContactID = cc1.ID
 			} else {
-				primaryID = getPrimaryID(contacts)
+				primaryContactID = getPrimaryContactID(contacts)
 			}
 
 		} else {
-			primaryID = getPrimaryID(contacts)
+			primaryContactID = getPrimaryContactID(contacts)
 			c := toContact(req)
-			c.LinkedID = primaryID
+			c.LinkedID = primaryContactID
 			c.LinkPrecedence = secondaryContact
 			if _, err := s.Contact.CreateContact(c); err != nil {
 				return nil, err
@@ -126,14 +127,14 @@ func helper(s *storage.Store, req pkg.ContactRequest, contacts []storage.Contact
 		}
 	}
 
-	allContacts, err := s.Contact.GetContactsByPrimaryID(primaryID)
+	allContacts, err := s.Contact.ListContactsByID(primaryContactID)
 	if err != nil {
 		return nil, err
 	}
 	return toResponse(allContacts), nil
 }
 
-func getPrimaryID(contacts []storage.Contact) int64 {
+func getPrimaryContactID(contacts []storage.Contact) int64 {
 	if contacts[0].LinkPrecedence == primaryContact {
 		return contacts[0].ID
 	}
@@ -142,7 +143,7 @@ func getPrimaryID(contacts []storage.Contact) int64 {
 
 func toResponse(contacts []storage.Contact) *pkg.ContactResponse {
 
-	result := pkg.ContactResponse{}
+	result := &pkg.ContactResponse{}
 	var primaryContactEmail, primaryContactPhoneNumber string
 
 	emailsMap := make(map[string]struct{})
@@ -176,9 +177,9 @@ func toResponse(contacts []storage.Contact) *pkg.ContactResponse {
 		result.Contact.PhoneNumbers = append(result.Contact.PhoneNumbers, k)
 	}
 
-	// sorting emails and phone numbers so as it can be testible
+	// sorting emails and phone numbers so as it can be testable
 	sort.Strings(result.Contact.Emails[1:])
 	sort.Strings(result.Contact.PhoneNumbers[1:])
 
-	return &result
+	return result
 }

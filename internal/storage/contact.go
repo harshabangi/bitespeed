@@ -8,12 +8,11 @@ import (
 )
 
 type ContactStorage interface {
-	ListContacts(email string, phoneNumber string) ([]Contact, error)
+	ListContactsByEmailAndPhoneNumber(email string, phoneNumber string) ([]Contact, error)
+	ListContactsByID(id int64) ([]Contact, error)
 	CreateContact(contact Contact) (int64, error)
-	UpdatedContactsWithNewLinkedIDs(newLinkedID, oldLinkedID int64) error
-	UpdatedContact(id int64, linkedID int64) error
-	GetContactsByPrimaryID(id int64) ([]Contact, error)
-	GetContactByID(id int64) (*Contact, error)
+	UpdateContact(id int64, contact Contact) error
+	UpdateContactsWithNewLinkedIDs(newLinkedID, oldLinkedID int64) error
 }
 
 type contactStorage struct {
@@ -35,77 +34,27 @@ func NewContactStorage(db *sql.DB) ContactStorage {
 	return &contactStorage{db: db}
 }
 
-func (c *contactStorage) GetContactByID(id int64) (*Contact, error) {
+func (c *contactStorage) ListContactsByEmailAndPhoneNumber(email string, phoneNumber string) ([]Contact, error) {
+	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE email = ? OR phone_number = ?"
 
-	query := "SELECT phone_number, email, linked_id, link_precedence FROM contact WHERE id = ?"
-	row := c.db.QueryRow(query, id)
-
-	var (
-		res Contact
-		pn  sql.NullString
-		e   sql.NullString
-		lID sql.NullInt64
-	)
-
-	err := row.Scan(&res.ID, &pn, &e, &lID, &res.LinkPrecedence)
-	switch err {
-	case nil:
-		return &res, nil
-	case sql.ErrNoRows:
-		return nil, nil
-	default:
+	rows, err := c.db.Query(query, email, phoneNumber)
+	if err != nil {
 		return nil, err
 	}
+	return readContacts(rows)
 }
 
-func (c *contactStorage) GetContactsByPrimaryID(id int64) ([]Contact, error) {
-
+func (c *contactStorage) ListContactsByID(id int64) ([]Contact, error) {
 	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = ? OR id = ?"
 
 	rows, err := c.db.Query(query, id, id)
 	if err != nil {
 		return nil, err
 	}
-
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	var result []Contact
-
-	for rows.Next() {
-		var (
-			res Contact
-			pn  sql.NullString
-			e   sql.NullString
-			lID sql.NullInt64
-		)
-
-		if err := rows.Scan(&res.ID, &pn, &e, &lID, &res.LinkPrecedence, &res.CreatedAt); err != nil {
-			return nil, err
-		}
-
-		if pn.Valid {
-			res.PhoneNumber = pn.String
-		}
-		if e.Valid {
-			res.Email = e.String
-		}
-		if lID.Valid {
-			res.LinkedID = lID.Int64
-		}
-		result = append(result, res)
-	}
-	return result, nil
+	return readContacts(rows)
 }
 
-func (c *contactStorage) ListContacts(email string, phoneNumber string) ([]Contact, error) {
-
-	rows, err := c.db.Query("SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE email = ? OR phone_number = ?", email, phoneNumber)
-	if err != nil {
-		return nil, err
-	}
-
+func readContacts(rows *sql.Rows) ([]Contact, error) {
 	defer func() {
 		_ = rows.Close()
 	}()
@@ -114,29 +63,28 @@ func (c *contactStorage) ListContacts(email string, phoneNumber string) ([]Conta
 
 	for rows.Next() {
 		var (
-			res Contact
-			pn  sql.NullString
-			e   sql.NullString
-			lID sql.NullInt64
+			c           Contact
+			phoneNumber sql.NullString
+			email       sql.NullString
+			linkedID    sql.NullInt64
 		)
 
-		if err := rows.Scan(&res.ID, &pn, &e, &lID, &res.LinkPrecedence, &res.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &phoneNumber, &email, &linkedID, &c.LinkPrecedence, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 
-		if pn.Valid {
-			res.PhoneNumber = pn.String
+		if phoneNumber.Valid {
+			c.PhoneNumber = phoneNumber.String
 		}
-		if e.Valid {
-			res.Email = e.String
+		if email.Valid {
+			c.Email = email.String
 		}
-		if lID.Valid {
-			res.LinkedID = lID.Int64
+		if linkedID.Valid {
+			c.LinkedID = linkedID.Int64
 		}
-
-		result = append(result, res)
+		result = append(result, c)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
@@ -145,14 +93,14 @@ func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
 		qp []interface{}
 	)
 
-	if contact.Email != "" {
-		q = append(q, "email = ?")
-		qp = append(qp, contact.Email)
-	}
-
 	if contact.PhoneNumber != "" {
 		q = append(q, "phone_number = ?")
 		qp = append(qp, contact.PhoneNumber)
+	}
+
+	if contact.Email != "" {
+		q = append(q, "email = ?")
+		qp = append(qp, contact.Email)
 	}
 
 	if contact.LinkedID != 0 {
@@ -165,7 +113,7 @@ func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
 		qp = append(qp, contact.LinkPrecedence)
 	}
 
-	query := fmt.Sprintf("INSERT INTO contact SET %s", strings.Join(q, ", "))
+	query := fmt.Sprintf("INSERT contact SET %s", strings.Join(q, ", "))
 
 	r, err := c.db.Exec(query, qp...)
 	if err != nil {
@@ -174,12 +122,30 @@ func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
 	return r.LastInsertId()
 }
 
-func (c *contactStorage) UpdatedContactsWithNewLinkedIDs(newLinkedID, oldLinkedID int64) error {
-	_, err := c.db.Exec("UPDATE contact SET linked_id = ? WHERE linked_id = ?", oldLinkedID, newLinkedID)
+func (c *contactStorage) UpdateContact(id int64, contact Contact) error {
+	var (
+		q  []string
+		qp []interface{}
+	)
+
+	if contact.LinkedID != 0 {
+		q = append(q, "linked_id = ?")
+		qp = append(qp, contact.LinkedID)
+	}
+
+	if contact.LinkPrecedence != "" {
+		q = append(q, "link_precedence = ?")
+		qp = append(qp, contact.LinkPrecedence)
+	}
+
+	query := fmt.Sprintf("UPDATE contact SET %s WHERE id = ?", strings.Join(q, ", "))
+	qp = append(qp, id)
+
+	_, err := c.db.Exec(query, qp...)
 	return err
 }
 
-func (c *contactStorage) UpdatedContact(id int64, linkedID int64) error {
-	_, err := c.db.Exec("UPDATE contact SET linked_id = ? WHERE id = ?", linkedID, id)
+func (c *contactStorage) UpdateContactsWithNewLinkedIDs(newLinkedID, oldLinkedID int64) error {
+	_, err := c.db.Exec("UPDATE contact SET linked_id = ? WHERE linked_id = ?", oldLinkedID, newLinkedID)
 	return err
 }

@@ -26,7 +26,7 @@ func validateEmail(email string) error {
 		return nil
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return fmt.Errorf("incorrect email id: %s", email)
+		return fmt.Errorf("incorrect email address: %s", email)
 	}
 	return nil
 }
