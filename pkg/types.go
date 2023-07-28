@@ -48,9 +48,24 @@ type ContactResponse struct {
 	Contact Contact `json:"contact"`
 }
 
+func NewContactResponse() *ContactResponse {
+	return &ContactResponse{
+		Contact: Contact{
+			Emails:              make([]string, 0),
+			PhoneNumbers:        make([]string, 0),
+			SecondaryContactIDs: make([]int64, 0),
+		},
+	}
+}
+
+func (c *ContactResponse) WithID(id int64) *ContactResponse {
+	c.Contact.PrimaryContactID = id
+	return c
+}
+
 type Contact struct {
-	PrimaryContactId    int64    `json:"primaryContactId"`
+	PrimaryContactID    int64    `json:"primaryContactId"`
 	Emails              []string `json:"emails"`
 	PhoneNumbers        []string `json:"phoneNumbers"`
-	SecondaryContactIds []int64  `json:"secondaryContactIds"`
+	SecondaryContactIDs []int64  `json:"secondaryContactIds"`
 }

@@ -10,9 +10,10 @@ import (
 type ContactStorage interface {
 	ListContactsByEmailAndPhoneNumber(email string, phoneNumber string) ([]Contact, error)
 	ListContactsByID(id int64) ([]Contact, error)
+	GetContact(id int64) (*Contact, error)
 	CreateContact(contact Contact) (int64, error)
 	UpdateContact(id int64, contact Contact) error
-	UpdateContactsWithNewLinkedIDs(newLinkedID, oldLinkedID int64) error
+	UpdateNewerContactsLinkedIDsWithOlderContactsLinkedIDs(olderContactLinkedID, newerContactLinkedID int64) error
 }
 
 type contactStorage struct {
@@ -45,7 +46,7 @@ func (c *contactStorage) ListContactsByEmailAndPhoneNumber(email string, phoneNu
 }
 
 func (c *contactStorage) ListContactsByID(id int64) ([]Contact, error) {
-	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = ? OR id = ?"
+	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = ? OR id = ? ORDER BY created_at"
 
 	rows, err := c.db.Query(query, id, id)
 	if err != nil {
@@ -84,7 +85,37 @@ func readContacts(rows *sql.Rows) ([]Contact, error) {
 		}
 		result = append(result, c)
 	}
-	return result, nil
+	return result, rows.Err()
+}
+
+func (c *contactStorage) GetContact(id int64) (*Contact, error) {
+	var (
+		query       = "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE id = ?"
+		phoneNumber sql.NullString
+		email       sql.NullString
+		linkedID    sql.NullInt64
+
+		result Contact
+	)
+
+	row := c.db.QueryRow(query, id)
+
+	err := row.Scan(&result.ID, &phoneNumber, &email, &linkedID, &result.LinkPrecedence, &result.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if phoneNumber.Valid {
+		result.PhoneNumber = phoneNumber.String
+	}
+	if email.Valid {
+		result.Email = email.String
+	}
+	if linkedID.Valid {
+		result.LinkedID = linkedID.Int64
+	}
+
+	return &result, nil
 }
 
 func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
@@ -145,7 +176,7 @@ func (c *contactStorage) UpdateContact(id int64, contact Contact) error {
 	return err
 }
 
-func (c *contactStorage) UpdateContactsWithNewLinkedIDs(newLinkedID, oldLinkedID int64) error {
-	_, err := c.db.Exec("UPDATE contact SET linked_id = ? WHERE linked_id = ?", oldLinkedID, newLinkedID)
+func (c *contactStorage) UpdateNewerContactsLinkedIDsWithOlderContactsLinkedIDs(olderContactLinkedID, newerContactLinkedID int64) error {
+	_, err := c.db.Exec("UPDATE contact SET linked_id = ? WHERE linked_id = ?", olderContactLinkedID, newerContactLinkedID)
 	return err
 }

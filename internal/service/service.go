@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/harshabangi/bitespeed/internal/storage"
 	"github.com/labstack/echo/v4"
+	"os"
 )
 
 type Config struct {
@@ -19,18 +20,21 @@ func NewConfig() *Config {
 }
 
 type Service struct {
-	conf    *Config
 	storage *storage.Store
 }
 
-func NewService(c *Config) (*Service, error) {
-	store, err := storage.New(c.UserName, c.Password, c.Host, c.Database)
+func NewService() (*Service, error) {
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	host := os.Getenv("DB_HOST")
+	database := os.Getenv("DB_NAME")
+
+	store, err := storage.New(user, password, host, database)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to database: %w", err)
 	}
 
 	return &Service{
-		conf:    c,
 		storage: store,
 	}, nil
 }
@@ -48,5 +52,5 @@ func (s *Service) Run() {
 
 	e.POST("/identify", identify)
 
-	e.Logger.Fatal(e.Start(s.conf.ListenAddr))
+	e.Logger.Fatal(e.Start(os.Getenv("LISTEN_ADDR")))
 }

@@ -5,7 +5,6 @@ import (
 	"github.com/harshabangi/bitespeed/pkg"
 	"github.com/labstack/echo/v4"
 	"net/http"
-	"sort"
 )
 
 const (
@@ -30,21 +29,23 @@ func identify(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	// If either email or phoneNumber or both are not present in any connected component
+	// create a new contact and add it as a primary contact
 	if len(contacts) == 0 {
-		contact := toContact(req)
-		contact.LinkPrecedence = primaryContact
-		id, err := s.storage.Contact.CreateContact(contact)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError)
-		}
-		return c.JSON(http.StatusOK, &pkg.ContactResponse{Contact: pkg.Contact{
-			PrimaryContactId: id,
-			Emails:           []string{contact.Email},
-			PhoneNumbers:     []string{contact.PhoneNumber},
-		}})
+		return createContactAndReturnResponse(c, s, req)
 	}
 
-	resp, err := helper(s.storage, req, contacts)
+	// If either email or phoneNumber is present in the request body
+	if req.Email == "" || req.PhoneNumber == "" {
+		res, err := getResponse(s.storage, getPrimaryContactID(contacts))
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		return c.JSON(http.StatusOK, res)
+	}
+
+	// If both email and phoneNumber is present in the request body
+	resp, err := handleContactLinkage(s.storage, req, contacts)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -59,79 +60,125 @@ func toContact(rq pkg.ContactRequest) storage.Contact {
 	}
 }
 
-func helper(s *storage.Store, req pkg.ContactRequest, contacts []storage.Contact) (*pkg.ContactResponse, error) {
+func createContactAndReturnResponse(c echo.Context, s *Service, req pkg.ContactRequest) error {
+	contact := toContact(req)
+	contact.LinkPrecedence = primaryContact
 
-	var primaryContactID int64
+	id, err := s.storage.Contact.CreateContact(contact)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
 
-	if req.Email == "" || req.PhoneNumber == "" {
-		primaryContactID = getPrimaryContactID(contacts)
+	res := pkg.NewContactResponse().WithID(id)
 
-	} else {
+	if contact.Email != "" {
+		res.Contact.Emails = []string{contact.Email}
+	}
+	if contact.PhoneNumber != "" {
+		res.Contact.PhoneNumbers = []string{contact.PhoneNumber}
+	}
+	return c.JSON(http.StatusOK, &res)
+}
 
-		var (
-			e      = 0
-			p      = 0
-			p1, p2 storage.Contact
-		)
+func handleContactLinkage(s *storage.Store, req pkg.ContactRequest, contacts []storage.Contact) (*pkg.ContactResponse, error) {
 
-		for _, v := range contacts {
+	var contact1, contact2 *storage.Contact
 
-			if req.Email == v.Email {
-				if v.LinkPrecedence == primaryContact {
-					p1 = v
-				}
-				e++
-			}
-			if req.PhoneNumber == v.PhoneNumber {
-				if v.LinkPrecedence == primaryContact {
-					p2 = v
-				}
-				p++
-			}
+	for i := 0; i < len(contacts); i++ {
+		if req.Email == contacts[i].Email {
+			contact1 = &contacts[i]
 		}
-
-		if e > 0 && p > 0 {
-
-			if p1.ID != 0 && p2.ID != 0 && p1.ID != p2.ID {
-
-				var cc1, cc2 storage.Contact
-
-				if p1.CreatedAt.Sub(*p2.CreatedAt).Seconds() > 0 {
-					cc2 = p1
-					cc1 = p2
-				} else {
-					cc2 = p2
-					cc1 = p1
-				}
-
-				if err := s.Contact.UpdateContactsWithNewLinkedIDs(cc2.ID, cc1.ID); err != nil {
-					return nil, err
-				}
-				if err := s.Contact.UpdateContact(cc2.ID, storage.Contact{LinkedID: cc1.ID}); err != nil {
-					return nil, err
-				}
-
-				primaryContactID = cc1.ID
-			} else {
-				primaryContactID = getPrimaryContactID(contacts)
-			}
-
-		} else {
-			primaryContactID = getPrimaryContactID(contacts)
-			c := toContact(req)
-			c.LinkedID = primaryContactID
-			c.LinkPrecedence = secondaryContact
-			if _, err := s.Contact.CreateContact(c); err != nil {
-				return nil, err
-			}
+		if req.PhoneNumber == contacts[i].PhoneNumber {
+			contact2 = &contacts[i]
 		}
 	}
 
-	allContacts, err := s.Contact.ListContactsByID(primaryContactID)
-	if err != nil {
+	// If only one of email and phone number is new.
+	// In that case we will have either email and phone number node in only one connected component.
+	// So get create a new contact and derive primary contact id to add it as a linked id for new contact
+
+	if contact1 == nil || contact2 == nil {
+		primaryContactID := getPrimaryContactID(contacts)
+		c := toContact(req)
+		c.LinkedID = primaryContactID
+		c.LinkPrecedence = secondaryContact
+		if _, err := s.Contact.CreateContact(c); err != nil {
+			return nil, err
+		}
+		return getResponse(s, primaryContactID)
+	}
+
+	// If both email and phone number are not new
+	switch {
+	case contact1.LinkPrecedence == primaryContact && contact2.LinkPrecedence == primaryContact:
+		if contact1.ID == contact2.ID {
+			return getResponse(s, contact1.ID)
+		}
+		return linkPrimaryContactsAndGenerateResponse(s, contact1, contact2)
+
+	case contact1.LinkPrecedence == primaryContact && contact2.LinkPrecedence == secondaryContact:
+		if contact1.ID == contact2.LinkedID {
+			return getResponse(s, contact1.ID)
+		}
+		c, err := s.Contact.GetContact(contact2.LinkedID)
+		if err != nil {
+			return nil, err
+		}
+		return linkPrimaryContactsAndGenerateResponse(s, contact1, c)
+
+	case contact1.LinkPrecedence == secondaryContact && contact2.LinkPrecedence == primaryContact:
+		if contact2.ID == contact1.LinkedID {
+			return getResponse(s, contact2.ID)
+		}
+		c, err := s.Contact.GetContact(contact1.LinkedID)
+		if err != nil {
+			return nil, err
+		}
+		return linkPrimaryContactsAndGenerateResponse(s, contact2, c)
+
+	case contact1.LinkPrecedence == secondaryContact && contact2.LinkPrecedence == secondaryContact:
+		if contact1.LinkedID == contact2.LinkedID {
+			return getResponse(s, contact1.LinkedID)
+		}
+		c1, err := s.Contact.GetContact(contact1.LinkedID)
+		if err != nil {
+			return nil, err
+		}
+		c2, err := s.Contact.GetContact(contact2.LinkedID)
+		if err != nil {
+			return nil, err
+		}
+		return linkPrimaryContactsAndGenerateResponse(s, c1, c2)
+
+	}
+
+	// shouldn't reach here
+	return nil, nil
+}
+
+func linkPrimaryContactsAndGenerateResponse(s *storage.Store, primaryContact1, primaryContact2 *storage.Contact) (*pkg.ContactResponse, error) {
+	var olderContact, newerContact storage.Contact
+
+	if primaryContact1.CreatedAt.Sub(*primaryContact2.CreatedAt).Seconds() > 0 {
+		newerContact = *primaryContact1
+		olderContact = *primaryContact2
+	} else {
+		newerContact = *primaryContact2
+		olderContact = *primaryContact1
+	}
+
+	if err := s.Contact.UpdateNewerContactsLinkedIDsWithOlderContactsLinkedIDs(olderContact.ID, newerContact.ID); err != nil {
 		return nil, err
 	}
-	return toResponse(allContacts), nil
+
+	if err := s.Contact.UpdateContact(newerContact.ID, storage.Contact{
+		LinkedID:       olderContact.ID,
+		LinkPrecedence: secondaryContact,
+	}); err != nil {
+		return nil, err
+	}
+
+	return getResponse(s, olderContact.ID)
 }
 
 func getPrimaryContactID(contacts []storage.Contact) int64 {
@@ -141,45 +188,55 @@ func getPrimaryContactID(contacts []storage.Contact) int64 {
 	return contacts[0].LinkedID
 }
 
-func toResponse(contacts []storage.Contact) *pkg.ContactResponse {
+func getResponse(s *storage.Store, primaryContactID int64) (*pkg.ContactResponse, error) {
+	allContacts, err := s.Contact.ListContactsByID(primaryContactID)
+	if err != nil {
+		return nil, err
+	}
+	return getResponseFromContacts(allContacts), nil
+}
 
-	result := &pkg.ContactResponse{}
-	var primaryContactEmail, primaryContactPhoneNumber string
+func getResponseFromContacts(contacts []storage.Contact) *pkg.ContactResponse {
 
-	emailsMap := make(map[string]struct{})
-	phoneNumbersMap := make(map[string]struct{})
+	var (
+		response        = pkg.NewContactResponse()
+		emailsMap       = make(map[string]Void)
+		phoneNumbersMap = make(map[string]Void)
+	)
 
 	for _, c := range contacts {
 
 		if c.LinkPrecedence == primaryContact {
-			result.Contact.PrimaryContactId = c.ID
-			primaryContactEmail = c.Email
-			primaryContactPhoneNumber = c.PhoneNumber
+			response.Contact.PrimaryContactID = c.ID
 		} else {
-			result.Contact.SecondaryContactIds = append(result.Contact.SecondaryContactIds, c.ID)
+			response.Contact.SecondaryContactIDs = append(response.Contact.SecondaryContactIDs, c.ID)
 		}
 
-		emailsMap[c.Email] = struct{}{}
-		phoneNumbersMap[c.PhoneNumber] = struct{}{}
+		if c.Email != "" && !keyExists(c.Email, emailsMap) {
+			addEmail(c, response)
+			emailsMap[c.Email] = VoidValue
+		}
+
+		if c.PhoneNumber != "" && !keyExists(c.PhoneNumber, phoneNumbersMap) {
+			addPhoneNumber(c, response)
+			phoneNumbersMap[c.PhoneNumber] = VoidValue
+		}
 	}
+	return response
+}
 
-	result.Contact.Emails = append(result.Contact.Emails, primaryContactEmail)
-	result.Contact.PhoneNumbers = append(result.Contact.PhoneNumbers, primaryContactPhoneNumber)
-
-	delete(emailsMap, primaryContactEmail)
-	delete(phoneNumbersMap, primaryContactPhoneNumber)
-
-	for k := range emailsMap {
-		result.Contact.Emails = append(result.Contact.Emails, k)
+func addEmail(c storage.Contact, response *pkg.ContactResponse) {
+	if c.LinkPrecedence == primaryContact {
+		response.Contact.Emails = append([]string{c.Email}, response.Contact.Emails...)
+	} else {
+		response.Contact.Emails = append(response.Contact.Emails, c.Email)
 	}
+}
 
-	for k := range phoneNumbersMap {
-		result.Contact.PhoneNumbers = append(result.Contact.PhoneNumbers, k)
+func addPhoneNumber(c storage.Contact, response *pkg.ContactResponse) {
+	if c.LinkPrecedence == primaryContact {
+		response.Contact.PhoneNumbers = append([]string{c.PhoneNumber}, response.Contact.PhoneNumbers...)
+	} else {
+		response.Contact.PhoneNumbers = append(response.Contact.PhoneNumbers, c.PhoneNumber)
 	}
-
-	// sorting emails and phone numbers so as it can be testable
-	sort.Strings(result.Contact.Emails[1:])
-	sort.Strings(result.Contact.PhoneNumbers[1:])
-
-	return result
 }
