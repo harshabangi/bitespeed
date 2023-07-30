@@ -1,0 +1,5 @@
+user: root
+host: localhost
+database: test
+password: apple@125
+listen_addr: ":3030"
