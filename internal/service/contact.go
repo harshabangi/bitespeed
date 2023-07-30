@@ -12,6 +12,18 @@ const (
 	secondaryContact = "secondary"
 )
 
+// identify godoc
+// @Summary Show the contacts links.
+// @Description get the contact links of server.
+// @Tags root
+// @Param contact body pkg.ContactRequest true "Contact Request Body"
+// @Accept json
+// @Produce json
+// @Success 200 {object} pkg.ContactResponse
+// @Failure 400
+// @Failure 500
+// @Router /identify [post]
+// @Consumes application/json
 func identify(c echo.Context) error {
 	s := c.Get("service").(*Service)
 
@@ -30,14 +42,14 @@ func identify(c echo.Context) error {
 	}
 
 	// If either email or phoneNumber or both are not present in any connected component
-	// create a new contact and add it as a primary contact
+	// create a new contact and add it as a primary contact.
 	if len(contacts) == 0 {
 		return createContactAndReturnResponse(c, s, req)
 	}
 
 	// If either email or phoneNumber is present in the request body
 	if req.Email == "" || req.PhoneNumber == "" {
-		res, err := getResponse(s.storage, getPrimaryContactID(contacts))
+		res, err := getContactResponse(s.storage, getPrimaryContactID(contacts))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
@@ -105,21 +117,24 @@ func handleContactLinkage(s *storage.Store, req pkg.ContactRequest, contacts []s
 		if _, err := s.Contact.CreateContact(c); err != nil {
 			return nil, err
 		}
-		return getResponse(s, primaryContactID)
+		return getContactResponse(s, primaryContactID)
 	}
 
-	// If both email and phone number are not new
+	// If both email and phone number are not new and can be present
+	// in a same connected component or different connected components
 	switch {
 	case contact1.LinkPrecedence == primaryContact && contact2.LinkPrecedence == primaryContact:
-		if contact1.ID == contact2.ID {
-			return getResponse(s, contact1.ID)
+		if contact1.ID == contact2.ID { // same connected component
+			return getContactResponse(s, contact1.ID)
 		}
+		// different connected component
 		return linkPrimaryContactsAndGenerateResponse(s, contact1, contact2)
 
 	case contact1.LinkPrecedence == primaryContact && contact2.LinkPrecedence == secondaryContact:
-		if contact1.ID == contact2.LinkedID {
-			return getResponse(s, contact1.ID)
+		if contact1.ID == contact2.LinkedID { // same connected component
+			return getContactResponse(s, contact1.ID)
 		}
+		// different connected component
 		c, err := s.Contact.GetContact(contact2.LinkedID)
 		if err != nil {
 			return nil, err
@@ -127,9 +142,10 @@ func handleContactLinkage(s *storage.Store, req pkg.ContactRequest, contacts []s
 		return linkPrimaryContactsAndGenerateResponse(s, contact1, c)
 
 	case contact1.LinkPrecedence == secondaryContact && contact2.LinkPrecedence == primaryContact:
-		if contact2.ID == contact1.LinkedID {
-			return getResponse(s, contact2.ID)
+		if contact2.ID == contact1.LinkedID { // same connected component
+			return getContactResponse(s, contact2.ID)
 		}
+		// different connected component
 		c, err := s.Contact.GetContact(contact1.LinkedID)
 		if err != nil {
 			return nil, err
@@ -137,9 +153,10 @@ func handleContactLinkage(s *storage.Store, req pkg.ContactRequest, contacts []s
 		return linkPrimaryContactsAndGenerateResponse(s, contact2, c)
 
 	case contact1.LinkPrecedence == secondaryContact && contact2.LinkPrecedence == secondaryContact:
-		if contact1.LinkedID == contact2.LinkedID {
-			return getResponse(s, contact1.LinkedID)
+		if contact1.LinkedID == contact2.LinkedID { // same connected component
+			return getContactResponse(s, contact1.LinkedID)
 		}
+		// different connected component
 		c1, err := s.Contact.GetContact(contact1.LinkedID)
 		if err != nil {
 			return nil, err
@@ -178,7 +195,7 @@ func linkPrimaryContactsAndGenerateResponse(s *storage.Store, primaryContact1, p
 		return nil, err
 	}
 
-	return getResponse(s, olderContact.ID)
+	return getContactResponse(s, olderContact.ID)
 }
 
 func getPrimaryContactID(contacts []storage.Contact) int64 {
@@ -188,15 +205,15 @@ func getPrimaryContactID(contacts []storage.Contact) int64 {
 	return contacts[0].LinkedID
 }
 
-func getResponse(s *storage.Store, primaryContactID int64) (*pkg.ContactResponse, error) {
+func getContactResponse(s *storage.Store, primaryContactID int64) (*pkg.ContactResponse, error) {
 	allContacts, err := s.Contact.ListContactsByID(primaryContactID)
 	if err != nil {
 		return nil, err
 	}
-	return getResponseFromContacts(allContacts), nil
+	return generateContactResponseFromContacts(allContacts), nil
 }
 
-func getResponseFromContacts(contacts []storage.Contact) *pkg.ContactResponse {
+func generateContactResponseFromContacts(contacts []storage.Contact) *pkg.ContactResponse {
 
 	var (
 		response        = pkg.NewContactResponse()

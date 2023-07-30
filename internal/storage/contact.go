@@ -17,7 +17,7 @@ type ContactStorage interface {
 }
 
 type contactStorage struct {
-	db *sql.DB
+	db database
 }
 
 type Contact struct {
@@ -31,8 +31,8 @@ type Contact struct {
 	DeletedAt      *time.Time
 }
 
-func NewContactStorage(db *sql.DB) ContactStorage {
-	return &contactStorage{db: db}
+func NewContactStorage(conn database) ContactStorage {
+	return &contactStorage{db: conn}
 }
 
 func (c *contactStorage) ListContactsByEmailAndPhoneNumber(email string, phoneNumber string) ([]Contact, error) {

@@ -1,0 +1,79 @@
+definitions:
+  pkg.Contact:
+    properties:
+      emails:
+        example:
+        - contact@example.com
+        items:
+          type: string
+        type: array
+      phoneNumbers:
+        example:
+        - "1234567890"
+        items:
+          type: string
+        type: array
+      primaryContactId:
+        example: 123
+        type: integer
+      secondaryContactIds:
+        example:
+        - 456
+        items:
+          type: integer
+        type: array
+    type: object
+  pkg.ContactRequest:
+    properties:
+      email:
+        example: contact@example.com
+        type: string
+      phoneNumber:
+        example: "1234567890"
+        type: string
+    type: object
+  pkg.ContactResponse:
+    properties:
+      contact:
+        $ref: '#/definitions/pkg.Contact'
+    type: object
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: BiteSpeed Server
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: BiteSpeed API
+  version: "1.0"
+paths:
+  /identify:
+    post:
+      consumes:
+      - application/json
+      description: get the contact links of server.
+      parameters:
+      - description: Contact Request Body
+        in: body
+        name: contact
+        required: true
+        schema:
+          $ref: '#/definitions/pkg.ContactRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg.ContactResponse'
+        "400":
+          description: Bad Request
+        "500":
+          description: Internal Server Error
+      summary: Show the contacts links.
+      tags:
+      - root
+swagger: "2.0"

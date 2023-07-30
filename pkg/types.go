@@ -7,8 +7,8 @@ import (
 )
 
 type ContactRequest struct {
-	Email       string `json:"email"`
-	PhoneNumber string `json:"phoneNumber"`
+	Email       string `json:"email" example:"contact@example.com"`
+	PhoneNumber string `json:"phoneNumber" example:"1234567890"`
 }
 
 func (c *ContactRequest) Validate() error {
@@ -64,8 +64,8 @@ func (c *ContactResponse) WithID(id int64) *ContactResponse {
 }
 
 type Contact struct {
-	PrimaryContactID    int64    `json:"primaryContactId"`
-	Emails              []string `json:"emails"`
-	PhoneNumbers        []string `json:"phoneNumbers"`
-	SecondaryContactIDs []int64  `json:"secondaryContactIds"`
+	PrimaryContactID    int64    `json:"primaryContactId" example:"123"`
+	Emails              []string `json:"emails" example:"contact@example.com"`
+	PhoneNumbers        []string `json:"phoneNumbers" example:"1234567890"`
+	SecondaryContactIDs []int64  `json:"secondaryContactIds" example:"456"`
 }
