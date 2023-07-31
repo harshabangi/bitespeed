@@ -28,7 +28,7 @@ func Test_Storage_ListContactsByEmailAndPhoneNumber(t *testing.T) {
 		AddRow(2, "56789", "a@gmail.com", 1, "secondary", &n2)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE email = ? OR phone_number = ?",
+		"SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE email = $1 OR phone_number = $2",
 	)).
 		WithArgs("a@gmail.com", "12345").
 		WillReturnRows(contactRows)
@@ -58,7 +58,7 @@ func Test_Storage_ListContactsByID(t *testing.T) {
 		AddRow(2, "56789", "a@gmail.com", 1, "secondary", &now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = ? OR id = ?",
+		"SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = $1 OR id = $2",
 	)).WithArgs(2, 2).WillReturnRows(contactRows)
 
 	got, err := s.ListContactsByID(2)
@@ -80,7 +80,7 @@ func Test_Storage_GetContact(t *testing.T) {
 		AddRow(2, "56789", "a@gmail.com", 1, "secondary", &now)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE id = ?",
+		"SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE id = $1",
 	)).WithArgs(2).WillReturnRows(contactRows)
 
 	s := NewContactStorage(db)
@@ -103,8 +103,10 @@ func Test_Storage_CreateContact(t *testing.T) {
 
 	defer func() { _ = db.Close() }()
 
-	qs := "INSERT contact SET phone_number = ?, email = ?, linked_id = ?, link_precedence = ?"
-	mock.ExpectExec(regexp.QuoteMeta(qs)).WithArgs("12345", "a@gmail.com", 2, "primary").WillReturnResult(sqlMock.NewResult(1, 1))
+	rows := sqlMock.NewRows([]string{"id"}).AddRow(1)
+
+	qs := "INSERT INTO contact(phone_number, email, linked_id, link_precedence) VALUES($1, $2, $3, $4) RETURNING id"
+	mock.ExpectQuery(regexp.QuoteMeta(qs)).WithArgs("12345", "a@gmail.com", 2, "primary").WillReturnRows(rows)
 
 	s := NewContactStorage(db)
 	_, err = s.CreateContact(Contact{PhoneNumber: "12345", Email: "a@gmail.com", LinkedID: 2, LinkPrecedence: "primary"})
@@ -118,7 +120,7 @@ func Test_Storage_UpdateContact(t *testing.T) {
 
 	defer func() { _ = db.Close() }()
 
-	qs := "UPDATE contact SET linked_id = ?, link_precedence = ? WHERE id = ?"
+	qs := "UPDATE contact SET linked_id = $1, link_precedence = $2 WHERE id = $3"
 	mock.ExpectExec(regexp.QuoteMeta(qs)).WithArgs(2, "primary", 1).WillReturnResult(driver.ResultNoRows)
 
 	s := NewContactStorage(db)
@@ -133,7 +135,7 @@ func Test_Storage_UpdateContactsWithNewLinkedIDs(t *testing.T) {
 
 	defer func() { _ = db.Close() }()
 
-	qs := "UPDATE contact SET linked_id = ? WHERE linked_id = ?"
+	qs := "UPDATE contact SET linked_id = $1 WHERE linked_id = $2"
 	mock.ExpectExec(regexp.QuoteMeta(qs)).WithArgs(1, 2).WillReturnResult(driver.ResultNoRows)
 
 	s := NewContactStorage(db)

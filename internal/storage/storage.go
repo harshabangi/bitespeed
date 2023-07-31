@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 )
 
 type database interface {
@@ -20,8 +20,8 @@ type Store struct {
 }
 
 func New(username, password, host, dbname string) (*Store, error) {
-	connectString := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", username, password, host, dbname)
-	db, err := sql.Open("mysql", connectString)
+	connectString := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable", host, username, password, dbname)
+	db, err := sql.Open("postgres", connectString)
 	if err == nil {
 		return &Store{
 			Sql:     db,
