@@ -36,7 +36,7 @@ func NewContactStorage(conn database) ContactStorage {
 }
 
 func (c *contactStorage) ListContactsByEmailAndPhoneNumber(email string, phoneNumber string) ([]Contact, error) {
-	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE email = ? OR phone_number = ?"
+	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE email = $1 OR phone_number = $2"
 
 	rows, err := c.db.Query(query, email, phoneNumber)
 	if err != nil {
@@ -46,7 +46,7 @@ func (c *contactStorage) ListContactsByEmailAndPhoneNumber(email string, phoneNu
 }
 
 func (c *contactStorage) ListContactsByID(id int64) ([]Contact, error) {
-	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = ? OR id = ? ORDER BY created_at"
+	query := "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE linked_id = $1 OR id = $2 ORDER BY created_at"
 
 	rows, err := c.db.Query(query, id, id)
 	if err != nil {
@@ -90,7 +90,7 @@ func readContacts(rows *sql.Rows) ([]Contact, error) {
 
 func (c *contactStorage) GetContact(id int64) (*Contact, error) {
 	var (
-		query       = "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE id = ?"
+		query       = "SELECT id, phone_number, email, linked_id, link_precedence, created_at FROM contact WHERE id = $1"
 		phoneNumber sql.NullString
 		email       sql.NullString
 		linkedID    sql.NullInt64
@@ -121,55 +121,71 @@ func (c *contactStorage) GetContact(id int64) (*Contact, error) {
 func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
 	var (
 		q  []string
+		ph []string
 		qp []interface{}
+		i  = 1
 	)
 
 	if contact.PhoneNumber != "" {
-		q = append(q, "phone_number = ?")
+		q = append(q, "phone_number")
+		ph = append(ph, fmt.Sprintf("$%d", i))
 		qp = append(qp, contact.PhoneNumber)
+		i++
 	}
 
 	if contact.Email != "" {
-		q = append(q, "email = ?")
+		q = append(q, "email")
+		ph = append(ph, fmt.Sprintf("$%d", i))
 		qp = append(qp, contact.Email)
+		i++
 	}
 
 	if contact.LinkedID != 0 {
-		q = append(q, "linked_id = ?")
+		q = append(q, "linked_id")
+		ph = append(ph, fmt.Sprintf("$%d", i))
 		qp = append(qp, contact.LinkedID)
+		i++
 	}
 
 	if contact.LinkPrecedence != "" {
-		q = append(q, "link_precedence = ?")
+		q = append(q, "link_precedence")
+		ph = append(ph, fmt.Sprintf("$%d", i))
 		qp = append(qp, contact.LinkPrecedence)
+		i++
 	}
 
-	query := fmt.Sprintf("INSERT contact SET %s", strings.Join(q, ", "))
+	query := fmt.Sprintf("INSERT INTO contact(%s) VALUES(%s) RETURNING id",
+		strings.Join(q, ", "), strings.Join(ph, ", "))
 
-	r, err := c.db.Exec(query, qp...)
+	row := c.db.QueryRow(query, qp...)
+	var lastInsertID int64
+	err := row.Scan(&lastInsertID)
 	if err != nil {
 		return 0, err
 	}
-	return r.LastInsertId()
+	return lastInsertID, nil
 }
 
 func (c *contactStorage) UpdateContact(id int64, contact Contact) error {
 	var (
 		q  []string
 		qp []interface{}
+		i  = 1
 	)
 
 	if contact.LinkedID != 0 {
-		q = append(q, "linked_id = ?")
+		q = append(q, fmt.Sprintf("linked_id = $%d", i))
 		qp = append(qp, contact.LinkedID)
+		i++
 	}
 
 	if contact.LinkPrecedence != "" {
-		q = append(q, "link_precedence = ?")
+		q = append(q, fmt.Sprintf("link_precedence = $%d", i))
 		qp = append(qp, contact.LinkPrecedence)
+		i++
 	}
 
-	query := fmt.Sprintf("UPDATE contact SET %s WHERE id = ?", strings.Join(q, ", "))
+	query := fmt.Sprintf("UPDATE contact SET %s WHERE id = $%d", strings.Join(q, ", "), i)
 	qp = append(qp, id)
 
 	_, err := c.db.Exec(query, qp...)
@@ -177,6 +193,6 @@ func (c *contactStorage) UpdateContact(id int64, contact Contact) error {
 }
 
 func (c *contactStorage) UpdateNewerContactsLinkedIDsWithOlderContactsLinkedIDs(olderContactLinkedID, newerContactLinkedID int64) error {
-	_, err := c.db.Exec("UPDATE contact SET linked_id = ? WHERE linked_id = ?", olderContactLinkedID, newerContactLinkedID)
+	_, err := c.db.Exec("UPDATE contact SET linked_id = $1 WHERE linked_id = $2", olderContactLinkedID, newerContactLinkedID)
 	return err
 }
