@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/harshabangi/bitespeed/internal/storage"
+	"github.com/harshabangi/bitespeed/internal/util"
 	"github.com/harshabangi/bitespeed/pkg"
 	"github.com/labstack/echo/v4"
 	"net/http"
@@ -107,7 +108,7 @@ func handleContactLinkage(s *storage.Store, req pkg.ContactRequest, contacts []s
 
 	// If only one of email and phone number is new.
 	// In that case we will have either email and phone number node in only one connected component.
-	// So get create a new contact and derive primary contact id to add it as a linked id for new contact
+	// So create a new contact and derive primary contact id to add it as a linked id for new contact
 
 	if contact1 == nil || contact2 == nil {
 		primaryContactID := getPrimaryContactID(contacts)
@@ -121,7 +122,7 @@ func handleContactLinkage(s *storage.Store, req pkg.ContactRequest, contacts []s
 	}
 
 	// If both email and phone number are not new and can be present
-	// in a same connected component or different connected components
+	// in either the same connected component or different connected components
 	switch {
 	case contact1.LinkPrecedence == primaryContact && contact2.LinkPrecedence == primaryContact:
 		if contact1.ID == contact2.ID { // same connected component
@@ -217,8 +218,8 @@ func generateContactResponseFromContacts(contacts []storage.Contact) *pkg.Contac
 
 	var (
 		response        = pkg.NewContactResponse()
-		emailsMap       = make(map[string]Void)
-		phoneNumbersMap = make(map[string]Void)
+		emailsMap       = make(map[string]util.Void)
+		phoneNumbersMap = make(map[string]util.Void)
 	)
 
 	for _, c := range contacts {
@@ -229,14 +230,14 @@ func generateContactResponseFromContacts(contacts []storage.Contact) *pkg.Contac
 			response.Contact.SecondaryContactIDs = append(response.Contact.SecondaryContactIDs, c.ID)
 		}
 
-		if c.Email != "" && !keyExists(c.Email, emailsMap) {
+		if c.Email != "" && !util.KeyExists(c.Email, emailsMap) {
 			addEmail(c, response)
-			emailsMap[c.Email] = VoidValue
+			emailsMap[c.Email] = util.VoidValue
 		}
 
-		if c.PhoneNumber != "" && !keyExists(c.PhoneNumber, phoneNumbersMap) {
+		if c.PhoneNumber != "" && !util.KeyExists(c.PhoneNumber, phoneNumbersMap) {
 			addPhoneNumber(c, response)
-			phoneNumbersMap[c.PhoneNumber] = VoidValue
+			phoneNumbersMap[c.PhoneNumber] = util.VoidValue
 		}
 	}
 	return response
