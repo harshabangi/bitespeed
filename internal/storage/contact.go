@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"github.com/harshabangi/bitespeed/internal/util"
 	"strings"
 	"time"
 )
@@ -119,45 +120,25 @@ func (c *contactStorage) GetContact(id int64) (*Contact, error) {
 }
 
 func (c *contactStorage) CreateContact(contact Contact) (int64, error) {
-	var (
-		q  []string
-		ph []string
-		qp []interface{}
-		i  = 1
-	)
+	qp := util.NewQueryParams()
 
 	if contact.PhoneNumber != "" {
-		q = append(q, "phone_number")
-		ph = append(ph, fmt.Sprintf("$%d", i))
-		qp = append(qp, contact.PhoneNumber)
-		i++
+		qp.AddParam("phone_number", contact.PhoneNumber)
 	}
-
 	if contact.Email != "" {
-		q = append(q, "email")
-		ph = append(ph, fmt.Sprintf("$%d", i))
-		qp = append(qp, contact.Email)
-		i++
+		qp.AddParam("email", contact.Email)
 	}
-
 	if contact.LinkedID != 0 {
-		q = append(q, "linked_id")
-		ph = append(ph, fmt.Sprintf("$%d", i))
-		qp = append(qp, contact.LinkedID)
-		i++
+		qp.AddParam("linked_id", contact.LinkedID)
 	}
-
 	if contact.LinkPrecedence != "" {
-		q = append(q, "link_precedence")
-		ph = append(ph, fmt.Sprintf("$%d", i))
-		qp = append(qp, contact.LinkPrecedence)
-		i++
+		qp.AddParam("link_precedence", contact.LinkPrecedence)
 	}
 
 	query := fmt.Sprintf("INSERT INTO contact(%s) VALUES(%s) RETURNING id",
-		strings.Join(q, ", "), strings.Join(ph, ", "))
+		strings.Join(qp.Columns, ", "), strings.Join(qp.PlaceHolders, ", "))
 
-	row := c.db.QueryRow(query, qp...)
+	row := c.db.QueryRow(query, qp.Params...)
 	var lastInsertID int64
 	err := row.Scan(&lastInsertID)
 	if err != nil {

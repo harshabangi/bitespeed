@@ -22,6 +22,11 @@ func Test_ValidateContactRequest(t *testing.T) {
 			"incorrect email address: abc",
 		},
 		{
+			"incorrect phone number: abc",
+			ContactRequest{PhoneNumber: "abc"},
+			"incorrect phone number: abc",
+		},
+		{
 			"valid request body",
 			ContactRequest{Email: "a@gmail.com", PhoneNumber: "12345"},
 			"",

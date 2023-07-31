@@ -3,7 +3,7 @@ package pkg
 import (
 	"fmt"
 	"net/mail"
-	"regexp"
+	"strconv"
 )
 
 type ContactRequest struct {
@@ -18,7 +18,7 @@ func (c *ContactRequest) Validate() error {
 	if err := validateEmail(c.Email); err != nil {
 		return err
 	}
-	return nil
+	return validatePhoneNumber(c.PhoneNumber)
 }
 
 func validateEmail(email string) error {
@@ -35,10 +35,10 @@ func validatePhoneNumber(phoneNumber string) error {
 	if phoneNumber == "" {
 		return nil
 	}
-	reg := regexp.MustCompile(`^\+?\d{1,3}?[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}$`)
 
-	if reg.MatchString(phoneNumber) {
-		return nil
+	_, err := strconv.Atoi(phoneNumber)
+	if err == nil {
+		return nil // It can be converted to an integer, so it's a valid phone number
 	}
 
 	return fmt.Errorf("incorrect phone number: %s", phoneNumber)
